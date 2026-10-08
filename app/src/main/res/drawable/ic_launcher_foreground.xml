@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scholr launcher foreground: extruded clay "S" mark inside a squircle -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:translateX="0" android:translateY="0">
+
+        <!-- soft drop shadow of the squircle -->
+        <path
+            android:pathData="M40,32 L68,32 A22,22 0 0 1 90,54 L90,82 A22,22 0 0 1 68,104 L40,104 A22,22 0 0 1 18,82 L18,54 A22,22 0 0 1 40,32 Z"
+            android:fillColor="#A39BBE"
+            android:fillAlpha="0.30" />
+
+        <!-- main squircle body -->
+        <path
+            android:pathData="M40,28 L68,28 A22,22 0 0 1 90,50 L90,78 A22,22 0 0 1 68,100 L40,100 A22,22 0 0 1 18,78 L18,50 A22,22 0 0 1 40,28 Z">
+            <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="18"
+                    android:startY="28"
+                    android:endX="90"
+                    android:endY="100"
+                    android:startColor="#818CF8"
+                    android:endColor="#4F46E5" />
+            </aapt:attr>
+        </path>
+
+        <!-- top-left specular highlight -->
+        <path
+            android:pathData="M40,28 L68,28 A22,22 0 0 1 90,50 L90,58 A46,46 0 0 0 18,62 L18,50 A22,22 0 0 1 40,28 Z"
+            android:fillColor="#FFFFFF"
+            android:fillAlpha="0.22" />
+
+        <!-- the S -->
+        <path
+            android:pathData="M65,50 C61,45 46,44 44,52 C42,60 62,58 63,68 C64,78 48,80 42,74"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="8"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <!-- graduation spark -->
+        <path
+            android:pathData="M76,22 L79,30 L87,33 L79,36 L76,44 L73,36 L65,33 L73,30 Z"
+            android:fillColor="#10B981" />
+    </group>
+</vector>

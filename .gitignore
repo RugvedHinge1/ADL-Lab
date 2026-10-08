@@ -1,0 +1,33 @@
+# Firebase secrets — never commit
+app/google-services.json
+
+# Local machine config + API keys — never commit
+local.properties
+
+# Pulled device database snapshots (scripts/pull-db.ps1)
+/local-db/
+
+# Build outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+/build/
+/app/build/
+.kotlin/
+
+# Gradle
+.gradle/
+gradle-wrapper.properties.bak
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
