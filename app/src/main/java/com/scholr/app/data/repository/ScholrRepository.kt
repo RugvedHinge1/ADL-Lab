@@ -5,7 +5,9 @@ import com.scholr.app.data.db.ScholrDatabase
 import com.scholr.app.data.db.toDomain
 import com.scholr.app.data.db.toEntity
 import com.scholr.app.data.firebase.AuthRepository
-import com.scholr.app.data.firebase.ContentRepository
+import com.scholr.app.data.conferences.ConferenceRepository
+import com.scholr.app.data.geo.LatLng
+import com.scholr.app.data.geo.PlaceGeocoder
 import com.scholr.app.data.firebase.UserDataRepository
 import com.scholr.app.data.model.ChatMessage
 import com.scholr.app.data.model.Conference
@@ -13,6 +15,7 @@ import com.scholr.app.data.model.Paper
 import com.scholr.app.data.model.PaperCollection
 import com.scholr.app.data.network.GeminiRepository
 import com.scholr.app.data.network.PaperApiRepository
+import com.scholr.app.data.recommend.RecommendationEngine
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -30,7 +33,8 @@ import kotlinx.coroutines.flow.map
 class ScholrRepository(
     private val db: ScholrDatabase,
     private val auth: AuthRepository,
-    private val content: ContentRepository,
+    private val conferenceSource: ConferenceRepository,
+    private val geocoder: PlaceGeocoder,
     private val userData: UserDataRepository,
     private val paperApi: PaperApiRepository,
     private val gemini: GeminiRepository
@@ -63,15 +67,31 @@ class ScholrRepository(
 
     // ── Papers (live) ────────────────────────────────────────────────────────
 
+    private val recommender = RecommendationEngine(paperApi)
+
+    /** Embedding-based "For you" feed — see [RecommendationEngine]. */
+    suspend fun recommendPapers(
+        interestLabels: List<String>,
+        bookmarkedIds: List<String>,
+        limit: Int = 30
+    ): List<Paper> = recommender.recommend(interestLabels, bookmarkedIds, limit)
+
     suspend fun searchPapers(query: String, limit: Int = 25): List<Paper> = paperApi.search(query, limit)
 
     suspend fun paperById(id: String): Paper? = paperApi.getPaper(id)
 
-    // ── Conferences (Firestore, curated) ────────────────────────────────────
+    // ── Conferences (live: CCF Deadlines + WikiCFP, geocoded on-device) ─────
 
-    val conferences: Flow<List<Conference>> = content.conferences
+    suspend fun loadConferences(forceRefresh: Boolean = false): List<Conference> =
+        conferenceSource.load(forceRefresh)
 
-    suspend fun seedContentIfEmpty() = content.seedIfEmpty()
+    suspend fun loadCountryConferences(country: String): List<Conference> =
+        conferenceSource.loadCountry(country)
+
+    suspend fun geocode(place: String, allowFallback: Boolean = true): LatLng? =
+        geocoder.resolve(place, allowFallback)
+
+    suspend fun countryOf(point: LatLng): String? = geocoder.countryOf(point)
 
     // ── Bookmarks ─────────────────────────────────────────────────────────────
 

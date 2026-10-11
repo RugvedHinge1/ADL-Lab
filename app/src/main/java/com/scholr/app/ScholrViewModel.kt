@@ -10,6 +10,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.scholr.app.data.SampleData
+import com.scholr.app.data.geo.LatLng
+import com.scholr.app.data.geo.PlaceGeocoder
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import com.scholr.app.data.model.ChatMessage
 import com.scholr.app.data.model.Conference
 import com.scholr.app.data.model.Interest
@@ -53,6 +58,30 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
 
     var conferences by mutableStateOf<List<Conference>>(emptyList())
         private set
+
+    var conferencesLoading by mutableStateOf(false)
+        private set
+
+    var conferencesError by mutableStateOf<String?>(null)
+        private set
+
+    /** Where the user is, once they have granted location access. */
+    var userLocation by mutableStateOf<LatLng?>(null)
+        private set
+
+    /** Search terms the user has actually run this session, newest first. */
+    val recentSearches = mutableStateListOf<String>()
+
+    /** Venue strings the geocoders could not place; excluded from the "pending" count. */
+    private var unplaceable by mutableStateOf<Set<String>>(emptySet())
+
+    /** Conferences whose venue is still waiting to be placed on the map. */
+    val pendingVenueCount: Int
+        get() = conferences.count { !it.hasLocation && it.hasPlaceName && it.location !in unplaceable }
+
+    private var userCountry: String? = null
+    private val GEOCODE_PARALLELISM = 6
+    private var geocodeJob: Job? = null
 
     val interests: List<Interest> = SampleData.interests
 
@@ -113,7 +142,6 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
             repo.authState.collect { user ->
                 currentUser = user
                 if (user != null) {
-                    repo.seedContentIfEmpty()
                     userName           = repo.getUserName()
                     onboardingComplete = repo.isOnboardingComplete()
                     selectedInterests  = repo.getSelectedInterests()
@@ -121,7 +149,6 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
                 }
             }
         }
-        viewModelScope.launch { repo.conferences.collect { conferences = it } }
         viewModelScope.launch {
             repo.bookmarkedIds.collect { ids ->
                 bookmarkedIds = ids
@@ -231,6 +258,97 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
         viewModelScope.launch { repo.saveSelectedInterests(updated) }
     }
 
+    // ── Conferences (live) ───────────────────────────────────────────────────
+
+    fun loadConferences(forceRefresh: Boolean = false) {
+        if (conferencesLoading) return
+        if (conferences.isNotEmpty() && !forceRefresh) {
+            startGeocoding()
+            return
+        }
+        viewModelScope.launch {
+            conferencesLoading = true
+            conferencesError = null
+            try {
+                conferences = repo.loadConferences(forceRefresh)
+                startGeocoding()
+            } catch (e: Exception) {
+                conferencesError = "Couldn't load conferences \u2014 check your connection and try again."
+            } finally {
+                conferencesLoading = false
+            }
+        }
+    }
+
+    fun updateUserLocation(location: LatLng?) {
+        userLocation = location
+        if (location == null) return
+        viewModelScope.launch {
+            userCountry = repo.countryOf(location)
+            // Pull in the venue list for the user's own country so there is
+            // genuinely something nearby to show, then place those venues first.
+            userCountry?.let { country ->
+                val local = runCatching { repo.loadCountryConferences(country) }.getOrDefault(emptyList())
+                if (local.isNotEmpty()) {
+                    val known = conferences.mapTo(HashSet()) { it.id }
+                    conferences = (conferences + local.filter { it.id !in known }).sortedBy { it.startEpochDay }
+                }
+            }
+            startGeocoding()
+        }
+    }
+
+    /**
+     * Resolves venue names to coordinates in the background, starting with
+     * venues in the user's own country so "nearby" fills in first. Lookups are
+     * cached on-device, so this is instant after the first run.
+     */
+    private fun startGeocoding() {
+        geocodeJob?.cancel()
+        val country = userCountry?.let(PlaceGeocoder::normalizeCountry)
+        val places = conferences
+            .filter { !it.hasLocation && it.hasPlaceName && it.location !in unplaceable }
+            .map { it.location }
+            .distinct()
+            .sortedByDescending { place ->
+                country != null && PlaceGeocoder.normalizeCountry(place.substringAfterLast(',')) == country
+            }
+        if (places.isEmpty()) return
+
+        geocodeJob = viewModelScope.launch {
+            val resolved = HashMap<String, LatLng>()
+            val needsFallback = ArrayList<String>()
+
+            // Pass 1: fast Open-Meteo lookups, several at a time, nearest country first.
+            for (batch in places.chunked(GEOCODE_PARALLELISM)) {
+                val results = batch.map { place -> async { place to repo.geocode(place, allowFallback = false) } }
+                    .awaitAll()
+                for ((place, point) in results) {
+                    if (point != null) resolved[place] = point else needsFallback += place
+                }
+                applyResolved(resolved)
+            }
+
+            // Pass 2: slower rate-limited OpenStreetMap lookups for what is left.
+            for (place in needsFallback) {
+                val point = repo.geocode(place)
+                if (point == null) {
+                    unplaceable = unplaceable + place
+                } else {
+                    resolved[place] = point
+                    applyResolved(resolved)
+                }
+            }
+        }
+    }
+
+    private fun applyResolved(resolved: Map<String, LatLng>) {
+        conferences = conferences.map { c ->
+            val p = resolved[c.location]
+            if (p != null && !c.hasLocation) c.copy(lat = p.lat, lng = p.lng) else c
+        }
+    }
+
     // ── Feed (live) ──────────────────────────────────────────────────────────
 
     fun setFilter(filter: String) { activeFilter = filter }
@@ -241,9 +359,26 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
             papersLoading = true
             papersError = null
             try {
-                val results = repo.searchPapers(feedQuery(), limit = 30)
-                cache(results)
-                papers = results
+                val interestLabels = SampleData.interests
+                    .filter { it.id in selectedInterests }.map { it.label }
+
+                // Phase 1 — a quick keyword search so the feed is never an empty,
+                // unscrollable screen while the (rate-limited) ranking runs.
+                if (papers.isEmpty()) {
+                    runCatching { repo.searchPapers(feedQuery(), limit = 30) }
+                        .getOrNull()?.takeIf { it.isNotEmpty() }
+                        ?.let { cache(it); papers = it; papersLoading = false }
+                }
+
+                // Phase 2 — embedding-ranked recommendations replace it when ready.
+                val ranked = runCatching { repo.recommendPapers(interestLabels, bookmarkedIds) }
+                    .getOrDefault(emptyList())
+                if (ranked.isNotEmpty()) {
+                    cache(ranked)
+                    papers = ranked
+                } else if (papers.isEmpty()) {
+                    error("No papers returned")
+                }
             } catch (e: Exception) {
                 papersError = e.message ?: "Couldn't load papers — check your connection and try again."
             } finally {
@@ -327,6 +462,23 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
 
     // ── Search (live) ────────────────────────────────────────────────────────
 
+    private fun rememberSearch(query: String) {
+        val q = query.trim()
+        recentSearches.remove(q)
+        recentSearches.add(0, q)
+        while (recentSearches.size > 6) recentSearches.removeAt(recentSearches.lastIndex)
+    }
+
+    fun clearRecentSearches() = recentSearches.clear()
+
+    /** Most common topics across the papers currently in the feed. */
+    val trendingTopics: List<String>
+        get() = papers.flatMap { it.tags }
+            .filter { it != "General" }
+            .groupingBy { it }.eachCount()
+            .entries.sortedByDescending { it.value }
+            .take(5).map { it.key }
+
     private suspend fun runSearch(query: String) {
         if (query.isBlank()) {
             searchResults = emptyList()
@@ -337,7 +489,10 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
         searchLoading = true
         searchError = null
         searchResults = try {
-            repo.searchPapers(query, limit = 25).also { cache(it) }
+            repo.searchPapers(query, limit = 25).also {
+                cache(it)
+                rememberSearch(query)
+            }
         } catch (e: Exception) {
             searchError = e.message ?: "Couldn't reach the paper search service — try again in a moment."
             emptyList()

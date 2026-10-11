@@ -35,6 +35,38 @@ object NetworkModule {
         }
     }
 
+    /** Semantic Scholar keys are limited to ~1 request/second, so space calls out
+     *  globally instead of firing parallel bursts that would just earn 429s. */
+    private object S2Throttle : okhttp3.Interceptor {
+        private const val MIN_GAP_MS = 1100L
+        private var lastCallAt = 0L
+
+        override fun intercept(chain: okhttp3.Interceptor.Chain): Response {
+            synchronized(this) {
+                val wait = lastCallAt + MIN_GAP_MS - System.currentTimeMillis()
+                if (wait > 0) Thread.sleep(wait)
+                lastCallAt = System.currentTimeMillis()
+            }
+            return chain.proceed(chain.request())
+        }
+    }
+
+    private val semanticScholarOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(40, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val authed = chain.request().newBuilder()
+                    .addHeader("x-api-key", BuildConfig.SEMANTIC_SCHOLAR_API_KEY)
+                    .build()
+                chain.proceed(authed)
+            }
+            .addInterceptor(S2Throttle)
+            .addInterceptor(RetryOn429Interceptor(delayMs = 2000))
+            .addInterceptor(loggingInterceptor)
+            .build()
+    }
+
     /** OpenAlex needs no API key — a `mailto` param just moves us into their
      *  higher-throughput "polite pool" instead of the anonymous default. */
     private val openAlexOkHttpClient: OkHttpClient by lazy {
@@ -74,6 +106,15 @@ object NetworkModule {
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(OpenAlexApi::class.java)
+    }
+
+    val semanticScholarApi: SemanticScholarApi by lazy {
+        Retrofit.Builder()
+            .baseUrl(SemanticScholarApi.BASE_URL)
+            .client(semanticScholarOkHttpClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(SemanticScholarApi::class.java)
     }
 
     val geminiApi: GeminiApi by lazy {

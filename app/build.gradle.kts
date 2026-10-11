@@ -32,6 +32,11 @@ android {
             "GEMINI_API_KEY",
             "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\""
         )
+        buildConfigField(
+            "String",
+            "SEMANTIC_SCHOLAR_API_KEY",
+            "\"${localProperties.getProperty("SEMANTIC_SCHOLAR_API_KEY", "")}\""
+        )
     }
 
     buildTypes {
@@ -70,6 +75,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -103,6 +109,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Maps (OpenStreetMap tiles, no API key) + device location
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

@@ -49,7 +49,9 @@ fun Conference.toFirestoreMap(): Map<String, Any?> = mapOf(
     "deadline" to deadline,
     "daysLeft" to daysLeft,
     "field" to field,
-    "tier" to tier
+    "tier" to tier,
+    "lat" to lat,
+    "lng" to lng
 )
 
 fun DocumentSnapshot.toConference(): Conference? {
@@ -63,7 +65,9 @@ fun DocumentSnapshot.toConference(): Conference? {
         deadline = getString("deadline").orEmpty(),
         daysLeft = (getLong("daysLeft") ?: 0L).toInt(),
         field = getString("field").orEmpty(),
-        tier = getString("tier").orEmpty()
+        tier = getString("tier").orEmpty(),
+        lat = getDouble("lat") ?: 0.0,
+        lng = getDouble("lng") ?: 0.0
     )
 }
 

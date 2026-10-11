@@ -33,7 +33,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.scholr.app.ScholrViewModel
-import com.scholr.app.data.SampleData
 import com.scholr.app.ui.clay.ClayIconButton
 import com.scholr.app.ui.clay.ClaySearchField
 import com.scholr.app.ui.clay.claySurface
@@ -112,10 +111,10 @@ fun SearchScreen(
         }
 
         if (query.isBlank()) {
-            item(key = "recent-header") {
-                SectionHeader(title = "Recent", action = "Clear")
+            if (vm.recentSearches.isNotEmpty()) item(key = "recent-header") {
+                SectionHeader(title = "Recent", action = "Clear", onActionClick = vm::clearRecentSearches)
             }
-            items(SampleData.recentSearches, key = { "recent-$it" }) { term ->
+            items(vm.recentSearches.toList(), key = { "recent-$it" }) { term ->
                 SuggestionRow(
                     text = term,
                     leading = Icons.Rounded.History,
@@ -127,7 +126,7 @@ fun SearchScreen(
                 Spacer(Modifier.height(4.dp))
                 SectionHeader(title = "Trending in your fields")
             }
-            items(SampleData.trendingTopics, key = { "topic-$it" }) { topic ->
+            items(vm.trendingTopics, key = { "topic-$it" }) { topic ->
                 SuggestionRow(
                     text = topic,
                     leading = Icons.Rounded.NorthEast,

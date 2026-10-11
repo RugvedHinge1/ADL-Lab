@@ -1,6 +1,7 @@
 package com.scholr.app.data.model
 
 import androidx.compose.ui.graphics.Color
+import kotlinx.serialization.Serializable
 
 /** A single academic paper in the discovery feed. */
 data class Paper(
@@ -18,7 +19,8 @@ data class Paper(
     val openAccess: Boolean = true
 )
 
-/** An upcoming conference / CFP entry. */
+/** An upcoming conference / CFP entry (live data, see ConferenceRepository). */
+@Serializable
 data class Conference(
     val id: String,
     val acronym: String,
@@ -28,8 +30,24 @@ data class Conference(
     val deadline: String,
     val daysLeft: Int,
     val field: String,
-    val tier: String
-)
+    val tier: String,
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    /** Conference start, as epoch day (0 = unknown). */
+    val startEpochDay: Long = 0,
+    /** Submission deadline, as epoch day (0 = none/unknown). [daysLeft] is derived from it. */
+    val deadlineEpochDay: Long = 0,
+    val link: String = ""
+) {
+    val hasLocation: Boolean get() = lat != 0.0 || lng != 0.0
+
+    /** Virtual / online-only events have no place on the map. */
+    val isOnline: Boolean get() = Regex("virtual|online|remote", RegexOption.IGNORE_CASE).containsMatchIn(location)
+
+    /** True when [location] is a real, geocodable place name. */
+    val hasPlaceName: Boolean get() = !isOnline && location.isNotBlank() &&
+        location.trim().lowercase() !in setOf("n/a", "tbd", "tba", "tbc")
+}
 
 /** One tile in the interest-selection grid. */
 data class Interest(

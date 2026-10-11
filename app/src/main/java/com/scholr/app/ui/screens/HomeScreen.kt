@@ -172,7 +172,7 @@ fun HomeScreen(
 
         item(key = "trending") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SampleData.trendingTopics.forEachIndexed { index, topic ->
+                vm.trendingTopics.forEachIndexed { index, topic ->
                     TrendingRow(rank = index + 1, topic = topic)
                 }
             }

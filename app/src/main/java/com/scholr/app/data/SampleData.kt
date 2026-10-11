@@ -1,9 +1,7 @@
 package com.scholr.app.data
 
-import com.scholr.app.data.model.Conference
 import com.scholr.app.data.model.Interest
 import com.scholr.app.data.model.Paper
-import com.scholr.app.data.model.PaperCollection
 
 /**
  * In-memory content so the whole journey is walkable without a backend.
@@ -196,66 +194,6 @@ object SampleData {
             ),
             tags = listOf("Metacognition", "Replication", "Psychophysics")
         )
-    )
-
-    val conferences = listOf(
-        Conference(
-            id = "c1", acronym = "NeurIPS", name = "Neural Information Processing Systems",
-            location = "Vancouver, Canada", dates = "Dec 8 – Dec 14, 2026",
-            deadline = "Abstract due May 15", daysLeft = 12,
-            field = "Computer Science", tier = "A*"
-        ),
-        Conference(
-            id = "c2", acronym = "SfN", name = "Society for Neuroscience Annual Meeting",
-            location = "Chicago, USA", dates = "Oct 17 – Oct 21, 2026",
-            deadline = "Abstract due Apr 30", daysLeft = 4,
-            field = "Neuroscience", tier = "A"
-        ),
-        Conference(
-            id = "c3", acronym = "ICML", name = "International Conference on Machine Learning",
-            location = "Seoul, South Korea", dates = "Jul 12 – Jul 18, 2026",
-            deadline = "Full paper due Jan 28", daysLeft = 31,
-            field = "Computer Science", tier = "A*"
-        ),
-        Conference(
-            id = "c4", acronym = "ACS Spring", name = "American Chemical Society Spring Meeting",
-            location = "Boston, USA", dates = "Mar 22 – Mar 26, 2026",
-            deadline = "Abstract due Nov 3", daysLeft = 58,
-            field = "Chemistry", tier = "A"
-        ),
-        Conference(
-            id = "c5", acronym = "AGU", name = "American Geophysical Union Fall Meeting",
-            location = "New Orleans, USA", dates = "Dec 14 – Dec 18, 2026",
-            deadline = "Abstract due Aug 6", daysLeft = 21,
-            field = "Climate Science", tier = "A"
-        ),
-        Conference(
-            id = "c6", acronym = "APS March", name = "APS March Meeting",
-            location = "Denver, USA", dates = "Mar 2 – Mar 6, 2026",
-            deadline = "Abstract due Oct 24", daysLeft = 9,
-            field = "Physics", tier = "A"
-        )
-    )
-
-    val collections = listOf(
-        PaperCollection("col1", "Thesis — Chapter 3", listOf("p1", "p4"), "📘"),
-        PaperCollection("col2", "Reading group", listOf("p2", "p8"), "☕"),
-        PaperCollection("col3", "Methods to steal", listOf("p7", "p3", "p5"), "🧪")
-    )
-
-    val recentSearches = listOf(
-        "sparse attention retrieval",
-        "hippocampal replay abstraction",
-        "ambient ammonia synthesis",
-        "scaling laws repeated data"
-    )
-
-    val trendingTopics = listOf(
-        "Mechanistic interpretability",
-        "Enzymatic nitrogen fixation",
-        "Wearable causal inference",
-        "Twisted multilayer graphene",
-        "Aerosol forcing"
     )
 
     fun paperById(id: String): Paper? = papers.firstOrNull { it.id == id }

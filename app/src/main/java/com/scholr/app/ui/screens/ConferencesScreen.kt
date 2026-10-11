@@ -1,5 +1,8 @@
 package com.scholr.app.ui.screens
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +28,21 @@ import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.rounded.Directions
+import androidx.compose.material.icons.rounded.MyLocation
+import com.scholr.app.data.geo.openDirections
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.scholr.app.data.geo.LatLng
+import com.scholr.app.data.geo.LibrariesRepository
+import com.scholr.app.data.geo.NearbyPlace
+import com.scholr.app.data.geo.currentLocation
+import com.scholr.app.data.geo.hasLocationPermission
+import com.scholr.app.data.geo.haversineKm
+import com.scholr.app.ui.components.NearbyMap
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +54,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.scholr.app.data.SampleData
+import com.scholr.app.ScholrViewModel
+import androidx.compose.ui.platform.LocalUriHandler
 import com.scholr.app.data.model.Conference
 import com.scholr.app.data.model.FieldPalette
 import com.scholr.app.ui.clay.ClayChip
@@ -56,20 +74,121 @@ import com.scholr.app.ui.theme.TextBody
 import com.scholr.app.ui.theme.TextHeading
 import com.scholr.app.ui.theme.TextOnClay
 
-private val fieldTabs = listOf("All", "Computer Science", "Neuroscience", "Chemistry", "Physics", "Climate Science")
+private val radiusOptions = listOf<Int?>(null, 250, 1000, 3000)
 
 @Composable
 fun ConferencesScreen(
-    innerPadding: PaddingValues,
-    onConferenceClick: (String) -> Unit = {}
+    vm: ScholrViewModel,
+    innerPadding: PaddingValues
 ) {
-    var tab by remember { mutableStateOf(fieldTabs.first()) }
+    var tab by remember { mutableStateOf("All") }
+    var radiusKm by remember { mutableStateOf<Int?>(null) }
+    var showMap by remember { mutableStateOf(false) }
+    var showLibraries by remember { mutableStateOf(false) }
+    var focusId by remember { mutableStateOf<String?>(null) }
+    var locating by remember { mutableStateOf(false) }
+    var locationDenied by remember { mutableStateOf(false) }
+    var libraries by remember { mutableStateOf<List<NearbyPlace>>(emptyList()) }
+    var librariesError by remember { mutableStateOf<String?>(null) }
 
-    val list = remember(tab) {
-        if (tab == "All") SampleData.conferences
-        else SampleData.conferences.filter { it.field == tab }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
+    val user = vm.userLocation
+    val all = vm.conferences
+
+    fun locate() {
+        scope.launch {
+            locating = true
+            val here = currentLocation(context)
+            locationDenied = here == null
+            vm.updateUserLocation(here)
+            locating = false
+        }
     }
-    val urgent = SampleData.conferences.filter { it.daysLeft <= 14 }.sortedBy { it.daysLeft }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) locate() else locationDenied = true
+    }
+
+    fun requestLocation() {
+        if (hasLocationPermission(context)) locate()
+        else permissionLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        vm.loadConferences()
+        // Picked up automatically if permission was granted on a previous visit.
+        if (hasLocationPermission(context) && vm.userLocation == null) locate()
+    }
+
+    LaunchedEffect(showLibraries, user) {
+        val origin = user
+        if (!showLibraries || origin == null) return@LaunchedEffect
+        librariesError = null
+        libraries = try {
+            LibrariesRepository.nearby(origin)
+        } catch (e: Exception) {
+            librariesError = "Libraries unavailable"
+            emptyList()
+        }
+    }
+
+    val fieldTabs = remember(all) {
+        listOf("All") + all.groupingBy { it.field }.eachCount()
+            .entries.sortedByDescending { it.value }.map { it.key }
+    }
+
+    val distances = remember(all, user) {
+        val origin = user
+        all.associate { c ->
+            c.id to if (origin != null && c.hasLocation) haversineKm(origin, LatLng(c.lat, c.lng)) else null
+        }
+    }
+
+    val list = remember(all, tab, user, radiusKm) {
+        var l = all.filter { tab == "All" || it.field == tab }
+        val r = radiusKm
+        if (user != null && r != null) l = l.filter { c -> distances[c.id]?.let { it <= r } == true }
+        // With a known position, nearest conference first.
+        if (user != null) {
+            l.sortedWith(compareBy({ distances[it.id] ?: Double.MAX_VALUE }, { it.startEpochDay }))
+        } else l
+    }
+    val urgent = all.filter { it.daysLeft in 0..14 }.sortedBy { it.daysLeft }
+    val pendingVenues = vm.pendingVenueCount
+
+    val openLink: (String) -> Unit = { id ->
+        all.firstOrNull { it.id == id }?.link?.takeIf { it.isNotBlank() }?.let { runCatching { uriHandler.openUri(it) } }
+    }
+
+    if (showMap) {
+        ConferenceMapView(
+            innerPadding = innerPadding,
+            conferences = list.filter { it.hasLocation },
+            distances = distances,
+            libraries = if (showLibraries) libraries else emptyList(),
+            user = user,
+            locating = locating,
+            locationDenied = locationDenied,
+            showLibraries = showLibraries,
+            librariesError = librariesError,
+            focusId = focusId,
+            onFocus = { focusId = it },
+            onShowList = { showMap = false },
+            onToggleLibraries = {
+                if (user == null) requestLocation()
+                showLibraries = !showLibraries
+            },
+            onLocate = ::requestLocation,
+            onConferenceClick = openLink
+        )
+        return
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -89,10 +208,43 @@ fun ConferencesScreen(
                 Text("Conferences", style = MaterialTheme.typography.displayMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Deadlines, venues and calls for papers in your fields.",
+                    text = when {
+                        locationDenied -> "Location is off \u2014 allow it to see what is near you."
+                        user != null && pendingVenues > 0 -> "Locating venues near you\u2026 ($pendingVenues to go)"
+                        user != null -> "Live listings, nearest first."
+                        else -> "Live deadlines, venues and calls for papers."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextBody
                 )
+            }
+        }
+
+        item(key = "viewToggle") {
+            ViewToggleRow(
+                onMap = { showMap = true },
+                locating = locating,
+                hasLocation = user != null,
+                onLocate = ::requestLocation
+            )
+        }
+
+        if (vm.conferencesLoading && all.isEmpty()) {
+            item(key = "loading") {
+                Text(
+                    "Loading live conference listings\u2026",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextBody
+                )
+            }
+        }
+
+        vm.conferencesError?.let { message ->
+            item(key = "error") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(message, style = MaterialTheme.typography.bodyMedium, color = TextBody)
+                    ClayChip(label = "Try again", selected = false, onClick = { vm.loadConferences(forceRefresh = true) })
+                }
             }
         }
 
@@ -100,30 +252,69 @@ fun ConferencesScreen(
             item(key = "urgent") { DeadlineAlert(urgent.first()) }
         }
 
-        item(key = "tabs") {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(fieldTabs, key = { it }) { name ->
-                    ClayChip(
-                        label = name,
-                        selected = tab == name,
-                        onClick = { tab = name }
-                    )
+        if (all.isNotEmpty()) {
+            item(key = "tabs") {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(fieldTabs, key = { it }) { name ->
+                        ClayChip(
+                            label = name,
+                            selected = tab == name,
+                            onClick = { tab = name }
+                        )
+                    }
                 }
             }
         }
 
-        item(key = "section") {
-            SectionHeader(title = "Upcoming", action = "Calendar")
+        if (user != null) {
+            item(key = "radius") {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(radiusOptions, key = { it ?: 0 }) { r ->
+                        ClayChip(
+                            label = if (r == null) "Anywhere" else "Within ${"%,d".format(r)} km",
+                            selected = radiusKm == r,
+                            onClick = { radiusKm = r }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (all.isNotEmpty()) {
+            item(key = "section") {
+                SectionHeader(title = if (user != null) "Near you" else "Upcoming")
+            }
+        }
+
+        if (all.isNotEmpty() && list.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    when {
+                        radiusKm != null && pendingVenues > 0 ->
+                            "Still locating venues \u2014 results will appear here."
+                        radiusKm != null ->
+                            "No listed conferences within ${"%,d".format(radiusKm)} km of you \u2014 try a wider range."
+                        else -> "Nothing matches these filters."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextBody
+                )
+            }
         }
 
         items(list, key = { it.id }) { conference ->
             ConferenceCard(
                 conference = conference,
-                onClick = { onConferenceClick(conference.id) }
+                distanceKm = distances[conference.id],
+                onClick = { openLink(conference.id) }
             )
         }
 
@@ -179,9 +370,10 @@ private fun DeadlineAlert(conference: Conference) {
 }
 
 @Composable
-private fun ConferenceCard(conference: Conference, onClick: () -> Unit) {
+private fun ConferenceCard(conference: Conference, distanceKm: Double? = null, onClick: () -> Unit) {
     val accent = FieldPalette.colorFor(conference.field)
     val urgencyColor = when {
+        conference.daysLeft < 0 -> TextBody
         conference.daysLeft <= 7 -> FieldMedicine
         conference.daysLeft <= 21 -> FieldChemistry
         else -> AcademicGreen
@@ -236,7 +428,8 @@ private fun ConferenceCard(conference: Conference, onClick: () -> Unit) {
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = conference.location,
+                        text = if (distanceKm != null) "${conference.location} · ${formatKm(distanceKm)}"
+                        else conference.location,
                         style = MaterialTheme.typography.bodySmall,
                         color = TextBody,
                         maxLines = 1,
@@ -287,17 +480,41 @@ private fun ConferenceCard(conference: Conference, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "${conference.daysLeft}d left",
+                    text = when {
+                        conference.daysLeft == com.scholr.app.data.conferences.CLOSED -> "Closed"
+                        conference.daysLeft < 0 -> "Deadline TBA"
+                        else -> "${conference.daysLeft}d left"
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = urgencyColor
                 )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = conference.tier,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accent
-                )
+                if (conference.tier.isNotBlank()) {
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = conference.tier,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accent
+                    )
+                }
             }
+        }
+
+        if (conference.hasPlaceName) {
+            val context = LocalContext.current
+            Spacer(Modifier.height(12.dp))
+            ClayChip(
+                label = "Directions in Google Maps",
+                selected = false,
+                onClick = {
+                    openDirections(
+                        context, conference.acronym,
+                        conference.lat.takeIf { conference.hasLocation },
+                        conference.lng.takeIf { conference.hasLocation },
+                        conference.location
+                    )
+                },
+                leadingIcon = Icons.Rounded.Directions
+            )
         }
     }
 }

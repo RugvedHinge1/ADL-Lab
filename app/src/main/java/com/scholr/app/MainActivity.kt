@@ -7,7 +7,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.scholr.app.data.db.ScholrDatabase
 import com.scholr.app.data.firebase.AuthRepository
-import com.scholr.app.data.firebase.ContentRepository
+import com.scholr.app.data.conferences.ConferenceRepository
+import com.scholr.app.data.geo.PlaceGeocoder
 import com.scholr.app.data.firebase.UserDataRepository
 import com.scholr.app.data.network.GeminiRepository
 import com.scholr.app.data.network.PaperApiRepository
@@ -21,7 +22,8 @@ class MainActivity : ComponentActivity() {
         ScholrRepository(
             db = db,
             auth = AuthRepository(),
-            content = ContentRepository(),
+            conferenceSource = ConferenceRepository(applicationContext),
+            geocoder = PlaceGeocoder(applicationContext),
             userData = UserDataRepository(),
             paperApi = PaperApiRepository(),
             gemini = GeminiRepository()

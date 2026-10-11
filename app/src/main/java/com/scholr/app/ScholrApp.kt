@@ -207,7 +207,7 @@ fun ScholrApp(vm: ScholrViewModel) {
             }
 
             composable(TopLevelDestination.Conferences.route) {
-                ConferencesScreen(innerPadding = innerPadding)
+                ConferencesScreen(vm = vm, innerPadding = innerPadding)
             }
 
             composable(TopLevelDestination.Library.route) {

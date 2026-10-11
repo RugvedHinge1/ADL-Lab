@@ -2,7 +2,7 @@ package com.scholr.app.data.network
 
 import com.scholr.app.data.model.Paper
 
-private const val WORDS_PER_MINUTE = 200
+internal const val WORDS_PER_MINUTE = 200
 
 /**
  * Maps an OpenAlex work onto our domain model. OpenAlex never returns plain
@@ -50,12 +50,12 @@ private fun reconstructAbstract(invertedIndex: Map<String, List<Int>>?): String?
     return words.filterNotNull().joinToString(" ")
 }
 
-private fun estimateReadMinutes(text: String): Int {
+internal fun estimateReadMinutes(text: String): Int {
     val words = text.trim().split(Regex("\\s+")).size
     return (words / WORDS_PER_MINUTE).coerceAtLeast(3)
 }
 
-private fun buildKeyFindings(abstractText: String): List<String> {
+internal fun buildKeyFindings(abstractText: String): List<String> {
     val sentences = abstractText
         .split(Regex("(?<=[.!?])\\s+"))
         .map { it.trim() }
