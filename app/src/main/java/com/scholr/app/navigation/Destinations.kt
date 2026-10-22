@@ -15,6 +15,8 @@ object Routes {
     const val SIGN_UP = "sign_up"
     const val INTERESTS = "interests"
     const val PROFILE = "profile"
+    const val SCAN = "scan"
+    const val NOTIFICATIONS = "notifications"
     const val PAPER_DETAIL = "paper/{paperId}"
 
     fun paperDetail(paperId: String) = "paper/$paperId"

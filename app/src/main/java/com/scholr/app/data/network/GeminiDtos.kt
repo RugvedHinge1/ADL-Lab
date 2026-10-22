@@ -22,7 +22,8 @@ data class GeminiPart(val text: String? = null)
 @Serializable
 data class GeminiGenerationConfig(
     val temperature: Double = 0.6,
-    @SerialName("maxOutputTokens") val maxOutputTokens: Int = 700
+    @SerialName("maxOutputTokens") val maxOutputTokens: Int = 700,
+    val responseMimeType: String? = null
 )
 
 @Serializable

@@ -114,6 +114,18 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // Scanner — CameraX preview + on-device ML Kit barcode reader, ZXing to draw QR codes
+    val cameraX = "1.4.2"
+    implementation("androidx.camera:camera-core:$cameraX")
+    implementation("androidx.camera:camera-camera2:$cameraX")
+    implementation("androidx.camera:camera-lifecycle:$cameraX")
+    implementation("androidx.camera:camera-view:$cameraX")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
+    // Background alerts (periodic deadline / AI-digest checks that post system notifications)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("com.google.zxing:core:3.5.3")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

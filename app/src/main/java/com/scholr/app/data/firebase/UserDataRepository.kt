@@ -62,6 +62,10 @@ class UserDataRepository(private val firestore: FirebaseFirestore = FirebaseModu
                 ?.mapNotNull { it.toPaperCollection() }.orEmpty()
         }
 
+    suspend fun addCollection(uid: String, collection: PaperCollection) {
+        userDoc(uid).update("collections", FieldValue.arrayUnion(collection.toFirestoreMap())).await()
+    }
+
     suspend fun getUserName(uid: String): String =
         userDoc(uid).get().await().getString("userName") ?: "User"
 

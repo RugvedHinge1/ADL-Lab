@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.WorkspacePremium
@@ -46,10 +47,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.scholr.app.ScholrViewModel
 import com.scholr.app.data.model.FieldPalette
+import com.scholr.app.data.scan.ScanCodec
 import com.scholr.app.ui.clay.ClayButton
 import com.scholr.app.ui.clay.ClayIconButton
 import com.scholr.app.ui.clay.ClayShape
@@ -110,6 +113,8 @@ fun PaperDetailScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var sheetOpen by remember { mutableStateOf(false) }
+    var qrOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Box(
         modifier = Modifier
@@ -308,13 +313,21 @@ fun PaperDetailScreen(
                 ClayIconButton(
                     icon = Icons.Rounded.Download,
                     contentDescription = "Download PDF",
-                    onClick = { },
-                    tint = TextHeading
+                    onClick = { downloadPdf(context, paper) },
+                    tint = if (paper.pdfUrl != null) TextHeading else TextBody.copy(alpha = 0.5f)
+                )
+                ClayIconButton(
+                    icon = Icons.Rounded.QrCode2,
+                    contentDescription = "Show QR code",
+                    onClick = { qrOpen = true },
+                    tint = ScholrPurple
                 )
                 ClayIconButton(
                     icon = Icons.Rounded.Share,
                     contentDescription = "Share",
-                    onClick = { },
+                    onClick = {
+                        shareText(context, paper.title + "\n" + ScanCodec.paperPayload(paper.id))
+                    },
                     tint = TextHeading
                 )
             }
@@ -333,7 +346,7 @@ fun PaperDetailScreen(
             ClayIconButton(
                 icon = Icons.Rounded.PictureAsPdf,
                 contentDescription = "Read full text",
-                onClick = { },
+                onClick = { openFullText(context, paper) },
                 size = 58.dp,
                 cornerRadius = ClayRadius.Button,
                 tint = ScholrPurple
@@ -346,6 +359,17 @@ fun PaperDetailScreen(
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+
+    if (qrOpen) {
+        QrShareSheet(
+            title = paper.title,
+            subtitle = "${paper.authors} · ${paper.year}",
+            payload = ScanCodec.paperPayload(paper.id),
+            shareCaption = paper.title,
+            hint = "Scan with Scholr to open this paper — or with any camera app to open it on the web.",
+            onDismiss = { qrOpen = false }
+        )
     }
 
     /* ---------------- the 80% AI analysis sheet ---------------- */

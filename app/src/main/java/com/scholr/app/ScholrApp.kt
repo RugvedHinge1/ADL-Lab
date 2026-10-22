@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -33,9 +34,11 @@ import com.scholr.app.ui.screens.ConferencesScreen
 import com.scholr.app.ui.screens.HomeScreen
 import com.scholr.app.ui.screens.InterestScreen
 import com.scholr.app.ui.screens.LibraryScreen
+import com.scholr.app.ui.screens.NotificationsScreen
 import com.scholr.app.ui.screens.OnboardingScreen
 import com.scholr.app.ui.screens.PaperDetailScreen
 import com.scholr.app.ui.screens.ProfileScreen
+import com.scholr.app.ui.screens.ScanScreen
 import com.scholr.app.ui.screens.SearchScreen
 import com.scholr.app.ui.screens.SplashScreen
 import com.scholr.app.ui.theme.ClayBase
@@ -52,6 +55,15 @@ fun ScholrApp(vm: ScholrViewModel) {
     val currentRoute = backStackEntry?.destination?.route
     val topLevel = TopLevelDestination.fromRoute(currentRoute)
     val showBar = topLevel != null
+
+    // A tapped system notification asks us to land on the alerts screen once we're past login.
+    LaunchedEffect(vm.openAlertsRequested, currentRoute) {
+        val beforeLogin = setOf(Routes.SPLASH, Routes.ONBOARDING, Routes.SIGN_IN, Routes.SIGN_UP, Routes.INTERESTS)
+        if (vm.openAlertsRequested && currentRoute != null && currentRoute !in beforeLogin) {
+            vm.consumeOpenAlertsRequest()
+            if (currentRoute != Routes.NOTIFICATIONS) navController.navigate(Routes.NOTIFICATIONS)
+        }
+    }
 
     Scaffold(
         containerColor = ClayBase,
@@ -182,7 +194,28 @@ fun ScholrApp(vm: ScholrViewModel) {
                     vm = vm,
                     innerPadding = innerPadding,
                     onPaperClick = { navController.navigate(Routes.paperDetail(it)) },
-                    onProfileClick = { navController.navigate(Routes.PROFILE) }
+                    onProfileClick = { navController.navigate(Routes.PROFILE) },
+                    onScanClick = { navController.navigate(Routes.SCAN) },
+                    onNotificationsClick = { navController.navigate(Routes.NOTIFICATIONS) }
+                )
+            }
+
+            composable(Routes.NOTIFICATIONS) {
+                NotificationsScreen(
+                    vm = vm,
+                    onBack = { navController.popBackStack() },
+                    onOpenPaper = { navController.navigate(Routes.paperDetail(it)) },
+                    onOpenConferences = {
+                        navController.navigateToTopLevel(TopLevelDestination.Conferences)
+                    }
+                )
+            }
+
+            composable(Routes.SCAN) {
+                ScanScreen(
+                    vm = vm,
+                    onBack = { navController.popBackStack() },
+                    onOpenPaper = { navController.navigate(Routes.paperDetail(it)) }
                 )
             }
 

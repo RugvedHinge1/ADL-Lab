@@ -16,8 +16,13 @@ data class S2PaperDto(
     val isOpenAccess: Boolean? = null,
     val fieldsOfStudy: List<String>? = null,
     val authors: List<S2AuthorDto>? = null,
-    val embedding: S2EmbeddingDto? = null
+    val embedding: S2EmbeddingDto? = null,
+    val openAccessPdf: S2OpenAccessPdfDto? = null,
+    val url: String? = null
 )
+
+@Serializable
+data class S2OpenAccessPdfDto(val url: String? = null)
 
 @Serializable
 data class S2AuthorDto(val name: String? = null)

@@ -1,4 +1,4 @@
-package com.scholr.app
+﻿package com.scholr.app
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -20,7 +20,13 @@ import com.scholr.app.data.model.Conference
 import com.scholr.app.data.model.Interest
 import com.scholr.app.data.model.Paper
 import com.scholr.app.data.model.PaperCollection
+import com.scholr.app.data.alerts.AlertEngine
+import com.scholr.app.data.alerts.AppAlert
 import com.scholr.app.data.repository.ScholrRepository
+import com.scholr.app.data.scan.ScanCodec
+import com.scholr.app.data.scan.ScanTarget
+import com.scholr.app.data.scan.ScanUiState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -132,7 +138,23 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
     var aiThinking by mutableStateOf(false)
         private set
 
-    var unreadNotifications by mutableStateOf(3)
+    // ── Alerts state (see "Alerts" section below) ────────────────────────────
+
+    var alerts by mutableStateOf<List<AppAlert>>(emptyList())
+        private set
+
+    var alertsLoading by mutableStateOf(false)
+        private set
+
+    private var readAlertIds by mutableStateOf(repo.alertStore.readIds)
+
+    val unreadAlertCount: Int get() = alerts.count { it.id !in readAlertIds }
+
+    var pushEnabled by mutableStateOf(repo.alertStore.pushEnabled)
+        private set
+
+    /** Set when the user tapped a system notification; the nav host consumes it. */
+    var openAlertsRequested by mutableStateOf(false)
         private set
 
     // ── Init ─────────────────────────────────────────────────────────────────
@@ -384,6 +406,7 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
             } finally {
                 papersLoading = false
             }
+            loadAlerts()
         }
     }
 
@@ -559,13 +582,174 @@ class ScholrViewModel(private val repo: ScholrRepository) : ViewModel() {
         "Give me the one-line takeaway"
     )
 
+    // ── Scanner (QR codes + book barcodes) ───────────────────────────────────
+
+    var scanState by mutableStateOf<ScanUiState>(ScanUiState.Idle)
+        private set
+
+    private var scanJob: Job? = null
+
+    /** Feed anything the camera (or the manual-entry box) read; the result lands in [scanState]. */
+    fun handleScan(raw: String) {
+        if (scanState !is ScanUiState.Idle) return
+        scanState = ScanUiState.Loading("Reading code…")
+        scanJob = viewModelScope.launch {
+            scanState = try {
+                resolveScan(ScanCodec.parse(raw))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ScanUiState.Failed(e.message ?: "Something went wrong reading that code.")
+            }
+        }
+    }
+
+    /** For failures that happen before there is anything to resolve (e.g. an image with no code in it). */
+    fun showScanError(message: String) {
+        if (scanState is ScanUiState.Idle) scanState = ScanUiState.Failed(message)
+    }
+
+    fun dismissScan() {
+        scanJob?.cancel()
+        scanState = ScanUiState.Idle
+    }
+
+    private suspend fun resolveScan(target: ScanTarget): ScanUiState = when (target) {
+        is ScanTarget.PaperRef -> {
+            scanState = ScanUiState.Loading("Opening paper…")
+            repo.paperById(target.id)?.let { cache(listOf(it)); ScanUiState.PaperFound(it) }
+                ?: ScanUiState.Failed("That code points to a paper, but it couldn't be loaded right now.")
+        }
+
+        is ScanTarget.ExternalPaper -> {
+            scanState = ScanUiState.Loading("Finding paper…")
+            repo.paperByExternalId(target.lookupId)?.let { cache(listOf(it)); ScanUiState.PaperFound(it) }
+                ?: ScanUiState.Failed("No paper found for ${target.lookupId.substringAfter(':')}.")
+        }
+
+        is ScanTarget.CollectionRef -> {
+            scanState = ScanUiState.Loading("Loading collection…")
+            val papers = repo.papersByIds(target.paperIds).also { cache(it) }
+            ScanUiState.CollectionFound(target.name, target.emoji, target.paperIds, papers)
+        }
+
+        is ScanTarget.Isbn -> {
+            scanState = ScanUiState.Loading("Looking up book…")
+            val book = repo.lookupBook(target.isbn13)
+            if (book == null) {
+                ScanUiState.Failed("No book found for ISBN ${target.isbn13}. Check the barcode and try again.")
+            } else {
+                scanState = ScanUiState.Loading("Finding related papers…")
+                val related = findRelatedPapers(book)
+                cache(related)
+                ScanUiState.BookFound(book, related)
+            }
+        }
+
+        is ScanTarget.Unsupported ->
+            ScanUiState.Failed("This code isn't a Scholr QR, a paper link, a DOI or a book ISBN.")
+    }
+
+    /** Papers on the book's subject. Other editions/listings of the book itself are filtered out. */
+    private suspend fun findRelatedPapers(book: com.scholr.app.data.scan.Book): List<Paper> {
+        val bookTitle = book.title.lowercase().trim()
+        fun List<Paper>.withoutTheBook() = filterNot {
+            val t = it.title.lowercase()
+            t.contains(bookTitle) || bookTitle.contains(t)
+        }
+        suspend fun search(q: String) = try {
+            repo.searchPapers(q, limit = 20).withoutTheBook()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val topic = book.categories.lastOrNull().orEmpty()
+        val results = linkedMapOf<String, Paper>()
+        if (topic.isNotBlank()) search(topic).forEach { results[it.id] = it }
+        if (results.size < 4) search(book.title).forEach { results.putIfAbsent(it.id, it) }
+        return results.values.take(8)
+    }
+
+    /** Saves a scanned collection into the user's own library. */
+    fun importCollection(name: String, emoji: String, paperIds: List<String>) {
+        viewModelScope.launch { repo.createCollection(name, emoji, paperIds) }
+    }
+
+    /** Makes a new collection from saved papers so it can be shared as a QR code. */
+    fun createCollection(name: String, paperIds: List<String>) {
+        val emoji = COLLECTION_EMOJIS[(name.hashCode() and Int.MAX_VALUE) % COLLECTION_EMOJIS.size]
+        viewModelScope.launch { repo.createCollection(name.trim(), emoji, paperIds) }
+    }
+
+    /** Make sure the papers behind a collection are in the cache so they can be listed. */
+    fun ensurePapersLoaded(ids: List<String>) {
+        val missing = ids.filter { it !in paperCache }
+        if (missing.isEmpty()) return
+        viewModelScope.launch { cache(repo.papersByIds(missing)) }
+    }
+
     // ── Notifications ────────────────────────────────────────────────────────
 
-    fun clearNotifications() { unreadNotifications = 0 }
+    // ── Alerts (conference deadlines + AI nudges, with real system notifications) ──
+
+    fun isAlertRead(id: String) = id in readAlertIds
+
+    /** Loads cached alerts instantly, then refreshes them (deadlines + a Gemini-written digest). */
+    fun loadAlerts(force: Boolean = false) {
+        if (alertsLoading) return
+        viewModelScope.launch {
+            alertsLoading = true
+            readAlertIds = repo.alertStore.readIds
+            if (alerts.isEmpty()) alerts = repo.alertStore.alerts
+            try {
+                val labels = SampleData.interests.filter { it.id in selectedInterests }.map { it.label }
+                val saved = bookmarkedPapers.map { it.title }
+                val hints = papers.take(8).map { AlertEngine.PaperHint(it.id, it.title) }
+                val fresh = repo.refreshAlerts(labels, saved, hints, force)
+                alerts = fresh
+                repo.notifier.notifyNew(fresh)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Keep whatever we already show; alerts are best-effort.
+            } finally {
+                alertsLoading = false
+            }
+        }
+    }
+
+    fun markAlertRead(id: String) {
+        readAlertIds = readAlertIds + id
+        repo.alertStore.readIds = readAlertIds
+    }
+
+    fun markAllAlertsRead() {
+        readAlertIds = readAlertIds + alerts.map { it.id }
+        repo.alertStore.readIds = readAlertIds
+    }
+
+    fun updatePushEnabled(enabled: Boolean) {
+        pushEnabled = enabled
+        repo.alertStore.pushEnabled = enabled
+        if (enabled) repo.notifier.notifyNew(alerts)
+    }
+
+    /** True once if we haven't asked for the notification permission yet. */
+    fun shouldAskNotificationPermission(): Boolean = !repo.alertStore.permissionAsked
+
+    fun onNotificationPermissionAsked(granted: Boolean) {
+        repo.alertStore.permissionAsked = true
+        if (granted) repo.notifier.notifyNew(alerts)
+    }
+
+    fun requestOpenAlerts() { openAlertsRequested = true }
+    fun consumeOpenAlertsRequest() { openAlertsRequested = false }
 
     // ── Factory ──────────────────────────────────────────────────────────────
 
     companion object {
+        private val COLLECTION_EMOJIS = listOf("📚", "🧪", "🧠", "🔬", "📈", "💡", "🌍", "🧬")
+
         fun factory(repo: ScholrRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")

@@ -16,7 +16,11 @@ data class Paper(
     val abstractText: String,
     val keyFindings: List<String>,
     val tags: List<String>,
-    val openAccess: Boolean = true
+    val openAccess: Boolean = true,
+    /** Direct link to a free PDF, when one exists. */
+    val pdfUrl: String? = null,
+    /** The paper's web page (publisher / Semantic Scholar / OpenAlex): the fallback when there's no free PDF. */
+    val webUrl: String? = null
 )
 
 /** An upcoming conference / CFP entry (live data, see ConferenceRepository). */

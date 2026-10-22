@@ -1,6 +1,12 @@
 package com.scholr.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +34,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +71,9 @@ import com.scholr.app.ui.theme.TextBody
 import com.scholr.app.ui.theme.TextHeading
 import com.scholr.app.ui.theme.TextOnClay
 
+/** Papers shown before "See all" is tapped. */
+private const val PREVIEW_COUNT = 6
+
 /**
  * The discovery feed.
  *
@@ -70,9 +87,24 @@ fun HomeScreen(
     vm: ScholrViewModel,
     innerPadding: PaddingValues,
     onPaperClick: (String) -> Unit,
-    onProfileClick: () -> Unit = {}
+    onProfileClick: () -> Unit = {},
+    onScanClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit = {}
 ) {
+    // Ask for the Android 13+ notification permission once, so deadline / AI alerts can actually show up.
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        vm.onNotificationPermissionAsked(it)
+    }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && vm.shouldAskNotificationPermission() &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     val feed = vm.feed
+    var showAll by rememberSaveable { mutableStateOf(false) }
 
     PullToRefreshBox(
         isRefreshing = vm.papersLoading,
@@ -93,9 +125,9 @@ fun HomeScreen(
     ) {
         item(key = "header") {
             ScholrHeader(
-                unreadCount = vm.unreadNotifications,
+                unreadCount = vm.unreadAlertCount,
                 onProfileClick = onProfileClick,
-                onNotificationsClick = { vm.clearNotifications() }
+                onNotificationsClick = onNotificationsClick
             )
         }
 
@@ -113,6 +145,8 @@ fun HomeScreen(
                 )
             }
         }
+
+        item(key = "scan") { ScanEntryCard(onClick = onScanClick) }
 
         item(key = "filters") {
             // contentPadding (not padding) so the first and last chip can still
@@ -144,7 +178,8 @@ fun HomeScreen(
             SectionHeader(
                 title = if (vm.activeFilter == "For you") "Recommended for you"
                 else vm.activeFilter,
-                action = "See all"
+                action = if (feed.size > PREVIEW_COUNT) (if (showAll) "Show less" else "See all") else null,
+                onActionClick = { showAll = !showAll }
             )
         }
 
@@ -155,7 +190,7 @@ fun HomeScreen(
         } else if (vm.papersLoading && feed.isEmpty()) {
             item(key = "papers-loading") { FeedLoadingState() }
         } else {
-            items(feed, key = { it.id }) { paper ->
+            items(if (showAll) feed else feed.take(PREVIEW_COUNT), key = { it.id }) { paper ->
                 PaperCard(
                     paper = paper,
                     bookmarked = vm.isBookmarked(paper.id),
@@ -180,6 +215,38 @@ fun HomeScreen(
 
         item(key = "tail") { Spacer(Modifier.height(8.dp)) }
     }
+    }
+}
+
+/** Entry point to the QR / barcode scanner. */
+@Composable
+private fun ScanEntryCard(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .claySurface(cornerRadius = ClayRadius.Card)
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .claySurface(cornerRadius = 18.dp, brush = GreenClayBrush),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.QrCodeScanner, "Scan", tint = TextOnClay, modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Scan a QR or book barcode", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Open a shared paper, import a collection, or find research related to a textbook.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextBody
+            )
+        }
     }
 }
 

@@ -34,7 +34,10 @@ fun OpenAlexWorkDto.toDomain(): Paper? {
         abstractText = abstractText,
         keyFindings = buildKeyFindings(abstractText),
         tags = concepts?.take(4)?.mapNotNull { it.displayName }?.takeIf { it.isNotEmpty() } ?: listOf("General"),
-        openAccess = openAccess?.isOa ?: false
+        openAccess = openAccess?.isOa ?: false,
+        pdfUrl = (bestOaLocation?.pdfUrl ?: primaryLocation?.pdfUrl)?.takeIf { it.isNotBlank() },
+        webUrl = (primaryLocation?.landingPageUrl ?: bestOaLocation?.landingPageUrl ?: openAccess?.oaUrl)
+            ?.takeIf { it.isNotBlank() } ?: "https://openalex.org/$shortId"
     )
 }
 

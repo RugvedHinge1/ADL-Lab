@@ -40,6 +40,39 @@ class PaperApiRepository(
             null
         }
 
+    /** Resolve a DOI / arXiv id ("DOI:10.1/x", "ARXIV:2101.00001"); null if neither source knows it. */
+    suspend fun getPaperByExternalId(lookupId: String): Paper? {
+        val viaS2 = try {
+            s2.getPaper(lookupId, SemanticScholarApi.FIELDS).toDomain()
+        } catch (e: Exception) {
+            Log.w(TAG, "S2 lookup of $lookupId failed", e)
+            null
+        }
+        if (viaS2 != null || !lookupId.startsWith("DOI:", ignoreCase = true)) return viaS2
+        return try {
+            openAlex.byDoi("doi:" + lookupId.substring(4)).results?.firstNotNullOfOrNull { it.toDomain() }
+        } catch (e: Exception) {
+            Log.w(TAG, "OpenAlex DOI lookup of $lookupId failed", e)
+            null
+        }
+    }
+
+    /** Hydrate many papers at once (one S2 batch call; OpenAlex ids are fetched individually). */
+    suspend fun papersByIds(ids: List<String>): List<Paper> {
+        val distinct = ids.distinct()
+        val s2Ids = distinct.filter(::isSemanticScholarId)
+        val s2Papers = if (s2Ids.isEmpty()) emptyList() else try {
+            s2.batch(SemanticScholarApi.FIELDS, S2BatchRequest(s2Ids.take(MAX_BATCH)))
+                .mapNotNull { it?.toDomain() }
+        } catch (e: Exception) {
+            Log.w(TAG, "S2 batch hydrate failed", e)
+            emptyList()
+        }
+        val others = distinct.filterNot(::isSemanticScholarId).take(MAX_OTHER_LOOKUPS).mapNotNull { getPaper(it) }
+        val byId = (s2Papers + others).associateBy { it.id }
+        return distinct.mapNotNull { byId[it] }
+    }
+
     /** Hydrate S2 papers (with embeddings) by id. Non-S2 ids are skipped. */
     suspend fun embeddedByIds(ids: List<String>): List<EmbeddedPaper> {
         val s2Ids = ids.filter(::isSemanticScholarId).distinct().take(MAX_BATCH)
@@ -78,5 +111,6 @@ class PaperApiRepository(
         const val TAG = "PaperApiRepository"
         const val MAX_BATCH = 100
         const val MAX_SEEDS = 20
+        const val MAX_OTHER_LOOKUPS = 10
     }
 }

@@ -18,6 +18,14 @@ interface OpenAlexApi {
         @Query("select") select: String = FIELDS
     ): OpenAlexSearchResponse
 
+    /** Look a work up by DOI via a filter (a DOI contains slashes, so it can't be a path segment). */
+    @GET("works")
+    suspend fun byDoi(
+        @Query("filter") filter: String,
+        @Query("per-page") perPage: Int = 1,
+        @Query("select") select: String = FIELDS
+    ): OpenAlexSearchResponse
+
     @GET("works/{id}")
     suspend fun getWork(
         @Path("id") id: String,
@@ -27,6 +35,6 @@ interface OpenAlexApi {
     companion object {
         const val BASE_URL = "https://api.openalex.org/"
         const val FIELDS = "id,title,publication_year,cited_by_count,authorships," +
-            "primary_location,open_access,abstract_inverted_index,concepts"
+            "primary_location,best_oa_location,open_access,abstract_inverted_index,concepts"
     }
 }

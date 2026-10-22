@@ -87,7 +87,7 @@ object NetworkModule {
     private val geminiOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val authed = chain.request().newBuilder()
                     .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)

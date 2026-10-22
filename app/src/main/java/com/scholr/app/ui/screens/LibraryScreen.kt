@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,12 +24,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +49,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.scholr.app.ScholrViewModel
+import com.scholr.app.data.model.Paper
 import com.scholr.app.data.model.PaperCollection
+import com.scholr.app.data.scan.ScanCodec
+import com.scholr.app.ui.clay.ClayButton
+import com.scholr.app.ui.clay.ClayTextField
+import com.scholr.app.ui.clay.SheetShape
 import com.scholr.app.ui.clay.ClayShape
 import com.scholr.app.ui.clay.claySurface
 import com.scholr.app.ui.clay.clayWell
@@ -65,6 +79,8 @@ fun LibraryScreen(
 ) {
     var tab by remember { mutableStateOf(LibraryTab.Saved) }
     val saved = vm.bookmarkedPapers
+    var qrCollection by remember { mutableStateOf<PaperCollection?>(null) }
+    var creating by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -117,10 +133,24 @@ fun LibraryScreen(
 
             LibraryTab.Collections -> {
                 item(key = "collections-header") {
-                    SectionHeader(title = "Your collections", action = "New")
+                    SectionHeader(
+                        title = "Your collections",
+                        action = "New",
+                        onActionClick = { creating = true }
+                    )
+                }
+                if (vm.collections.isEmpty()) {
+                    item(key = "no-collections") {
+                        Text(
+                            text = "No collections yet. Make one from your saved papers, or scan a " +
+                                "collection QR code from the Home screen.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextBody
+                        )
+                    }
                 }
                 items(vm.collections, key = { it.id }) { collection ->
-                    CollectionCard(collection = collection, onClick = { })
+                    CollectionCard(collection = collection, onClick = { qrCollection = collection })
                 }
                 item(key = "recent-header") {
                     Spacer(Modifier.height(4.dp))
@@ -145,6 +175,120 @@ fun LibraryScreen(
         }
 
         item(key = "tail") { Spacer(Modifier.height(8.dp)) }
+    }
+
+    qrCollection?.let { collection ->
+        LaunchedEffect(collection.id) { vm.ensurePapersLoaded(collection.paperIds) }
+        val shared = collection.paperIds.take(ScanCodec.MAX_PAPERS_PER_QR)
+        QrShareSheet(
+            title = "${collection.emoji}  ${collection.name}",
+            subtitle = if (collection.paperIds.size == 1) "1 paper" else "${collection.paperIds.size} papers",
+            payload = ScanCodec.collectionPayload(collection.name, collection.emoji, collection.paperIds),
+            shareCaption = "Scholr collection: ${collection.name}",
+            hint = if (collection.paperIds.size > shared.size)
+                "Scan this in Scholr to import the collection. Only the first ${shared.size} papers fit in one code."
+            else "Scan this in Scholr (Home, then Scan) to import the whole collection.",
+            onDismiss = { qrCollection = null },
+            extra = {
+                shared.mapNotNull { vm.paperFor(it) }.forEach { paper ->
+                    PaperRow(paper, onClick = { qrCollection = null; onPaperClick(paper.id) })
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+        )
+    }
+
+    if (creating) {
+        NewCollectionSheet(
+            saved = saved,
+            onDismiss = { creating = false },
+            onCreate = { name, ids ->
+                vm.createCollection(name, ids)
+                creating = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewCollectionSheet(
+    saved: List<Paper>,
+    onDismiss: () -> Unit,
+    onCreate: (String, List<String>) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var picked by remember { mutableStateOf(setOf<String>()) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = ClayBase,
+        shape = SheetShape,
+        dragHandle = { ClayDragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 20.dp)
+        ) {
+            Text("New collection", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(14.dp))
+            ClayTextField(value = name, onValueChange = { name = it }, label = "Name", placeholder = "e.g. Diffusion models")
+            Spacer(Modifier.height(16.dp))
+            Text("Pick from your saved papers", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(10.dp))
+            if (saved.isEmpty()) {
+                Text(
+                    "Nothing saved yet - bookmark a few papers first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextBody
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f, fill = false).heightIn(max = 340.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp)
+                ) {
+                    items(saved, key = { it.id }) { paper ->
+                        val on = paper.id in picked
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .claySurface(cornerRadius = ClayRadius.Pill)
+                                .clickable { picked = if (on) picked - paper.id else picked + paper.id }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                paper.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Icon(
+                                if (on) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                contentDescription = if (on) "Selected" else "Not selected",
+                                tint = if (on) ScholrPurple else TextBody
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            ClayButton(
+                text = "Create collection",
+                onClick = { onCreate(name, saved.filter { it.id in picked }.map { it.id }) },
+                enabled = name.isNotBlank() && picked.isNotEmpty(),
+                brush = PurpleClayBrush,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -239,16 +383,16 @@ private fun CollectionCard(collection: PaperCollection, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                text = "${collection.paperIds.size} papers",
+                text = if (collection.paperIds.size == 1) "1 paper" else "${collection.paperIds.size} papers",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextBody
             )
         }
         Icon(
-            Icons.Rounded.Add,
-            contentDescription = null,
+            Icons.Rounded.QrCode2,
+            contentDescription = "Show QR code",
             tint = ScholrPurple,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(24.dp)
         )
     }
 }

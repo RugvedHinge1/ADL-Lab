@@ -16,6 +16,13 @@ import com.scholr.app.data.model.PaperCollection
 import com.scholr.app.data.network.GeminiRepository
 import com.scholr.app.data.network.PaperApiRepository
 import com.scholr.app.data.recommend.RecommendationEngine
+import com.scholr.app.data.alerts.AlertEngine
+import com.scholr.app.data.alerts.AlertNotifier
+import com.scholr.app.data.alerts.AlertStore
+import com.scholr.app.data.alerts.AppAlert
+import com.scholr.app.data.scan.Book
+import com.scholr.app.data.scan.BookRepository
+import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -37,7 +44,11 @@ class ScholrRepository(
     private val geocoder: PlaceGeocoder,
     private val userData: UserDataRepository,
     private val paperApi: PaperApiRepository,
-    private val gemini: GeminiRepository
+    private val gemini: GeminiRepository,
+    private val books: BookRepository = BookRepository(),
+    val alertStore: AlertStore,
+    private val alertEngine: AlertEngine,
+    val notifier: AlertNotifier
 ) {
 
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -80,6 +91,12 @@ class ScholrRepository(
 
     suspend fun paperById(id: String): Paper? = paperApi.getPaper(id)
 
+    suspend fun paperByExternalId(lookupId: String): Paper? = paperApi.getPaperByExternalId(lookupId)
+
+    suspend fun papersByIds(ids: List<String>): List<Paper> = paperApi.papersByIds(ids)
+
+    suspend fun lookupBook(isbn13: String): Book? = books.lookup(isbn13)
+
     // ── Conferences (live: CCF Deadlines + WikiCFP, geocoded on-device) ─────
 
     suspend fun loadConferences(forceRefresh: Boolean = false): List<Conference> =
@@ -112,6 +129,21 @@ class ScholrRepository(
     val collections: Flow<List<PaperCollection>> = auth.authState.flatMapLatest { user ->
         if (user != null) userData.collections(user.uid) else flowOf(emptyList<PaperCollection>())
     }
+
+    suspend fun createCollection(name: String, emoji: String, paperIds: List<String>) {
+        auth.currentUser?.let {
+            userData.addCollection(it.uid, PaperCollection(UUID.randomUUID().toString(), name, paperIds, emoji))
+        }
+    }
+
+    // ── Alerts (conference deadlines + AI nudges) ────────────────────────────
+
+    suspend fun refreshAlerts(
+        interestLabels: List<String>,
+        savedTitles: List<String>,
+        paperHints: List<AlertEngine.PaperHint>,
+        force: Boolean
+    ): List<AppAlert> = alertEngine.refresh(interestLabels, savedTitles, paperHints, force)
 
     // ── Chat (local history in Room, live answers from Gemini) ──────────────
 

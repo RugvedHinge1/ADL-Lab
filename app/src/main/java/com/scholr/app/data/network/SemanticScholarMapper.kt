@@ -28,7 +28,9 @@ fun S2PaperDto.toDomain(): Paper? {
         abstractText = abstractText,
         keyFindings = buildKeyFindings(abstractText),
         tags = fields.ifEmpty { listOf("General") },
-        openAccess = isOpenAccess ?: false
+        openAccess = isOpenAccess ?: false,
+        pdfUrl = openAccessPdf?.url?.takeIf { it.isNotBlank() },
+        webUrl = url?.takeIf { it.isNotBlank() } ?: "https://www.semanticscholar.org/paper/$id"
     )
 }
 

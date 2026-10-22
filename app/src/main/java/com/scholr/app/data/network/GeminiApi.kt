@@ -18,6 +18,6 @@ interface GeminiApi {
 
         /** Google's self-updating alias for their current fastest/lowest-latency model —
          *  avoids hardcoding a dated model id that later gets retired. */
-        const val MODEL = "gemini-flash-lite-latest"
+        const val MODEL = "gemini-3.1-flash-lite"
     }
 }

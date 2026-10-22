@@ -43,7 +43,7 @@ interface SemanticScholarApi {
     companion object {
         const val BASE_URL = "https://api.semanticscholar.org/"
         const val FIELDS = "paperId,title,abstract,venue,year,citationCount,isOpenAccess," +
-            "fieldsOfStudy,authors.name"
+            "fieldsOfStudy,authors.name,openAccessPdf,url"
         const val FIELDS_WITH_EMBEDDING = "$FIELDS,embedding.specter_v2"
     }
 }
